@@ -1,0 +1,1022 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>城市点亮与旅行轨迹</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- ECharts 5 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/echarts/5.4.3/echarts.min.js"></script>
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        
+        * {
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: #0b0f19;
+            color: #f1f5f9;
+            overflow: hidden;
+            height: 100vh;
+            width: 100vw;
+        }
+
+        /* Glassmorphic Panel styling */
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.8);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .glass-card {
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 4px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.1);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(56, 189, 248, 0.3);
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body class="flex flex-col h-screen w-screen relative select-none">
+    <!-- Header Navbar -->
+    <header class="fixed top-0 left-0 right-0 z-30 px-4 py-3 glass-panel flex items-center justify-between shadow-lg">
+        <div class="flex items-center gap-2">
+            <div class="w-8 h-8 rounded-xl bg-gradient-to-tr from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-500/30">
+                <i class="fa-solid fa-map-location-dot text-white text-sm"></i>
+            </div>
+            <div>
+                <h1 class="text-base font-bold bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-sky-200">
+                    城市点亮 · 我的轨迹
+                </h1>
+                <p class="text-[10px] text-slate-400" id="mapTitleSub">已点亮 0 个城市</p>
+            </div>
+        </div>
+
+        <div class="flex items-center gap-2">
+            <!-- LLM Smart Import Button -->
+            <button onclick="openModal('llmModal')" class="px-3 py-1.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-medium flex items-center gap-1.5 shadow-md shadow-indigo-500/20 active:scale-95 transition-all">
+                <i class="fa-solid fa-wand-magic-sparkles text-amber-300"></i>
+                <span>AI点亮</span>
+            </button>
+            <!-- Add Button -->
+            <button onclick="openAddModal()" class="px-3 py-1.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs flex items-center gap-1 shadow-md shadow-cyan-500/20 active:scale-95 transition-all">
+                <i class="fa-solid fa-plus text-xs"></i>
+                <span>打卡</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Map Container -->
+    <main class="relative flex-1 w-full h-full pt-16 pb-16">
+        <div id="echartsMap" class="w-full h-full"></div>
+
+        <!-- Floating Controls Panel -->
+        <div class="absolute top-20 left-4 z-20 flex flex-col gap-2 pointer-events-auto">
+            <!-- Back to National Map -->
+            <button id="backBtn" onclick="resetToNationalMap()" class="hidden glass-panel px-3 py-1.5 rounded-xl text-xs text-cyan-300 hover:text-white flex items-center gap-1.5 shadow-xl transition-all">
+                <i class="fa-solid fa-arrow-left"></i>
+                <span>返回全国视图</span>
+            </button>
+            <!-- Toggle Trajectory Lines -->
+            <button id="toggleLinesBtn" onclick="toggleTrajectoryLines()" class="glass-panel px-3 py-1.5 rounded-xl text-xs text-slate-200 hover:text-cyan-300 flex items-center gap-1.5 shadow-xl transition-all">
+                <i id="linesIcon" class="fa-solid fa-route text-cyan-400"></i>
+                <span id="linesText">隐藏轨迹线</span>
+            </button>
+            <!-- Play Trajectory -->
+            <button onclick="playTrajectoryAnimation()" class="glass-panel px-3 py-1.5 rounded-xl text-xs text-amber-300 hover:text-amber-200 flex items-center gap-1.5 shadow-xl transition-all">
+                <i class="fa-solid fa-play"></i>
+                <span>轨迹动画</span>
+            </button>
+        </div>
+
+        <!-- Map Loader Overlay -->
+        <div id="mapLoader" class="absolute inset-0 z-40 bg-slate-950/80 backdrop-blur-md flex flex-col items-center justify-center gap-3 transition-opacity duration-300">
+            <div class="w-10 h-10 border-3 border-cyan-500/30 border-t-cyan-400 rounded-full animate-spin"></div>
+            <p id="loaderText" class="text-xs font-medium text-cyan-300">正在加载全国城市地图数据...</p>
+            <div id="loaderRetry" class="hidden flex flex-col items-center gap-2 mt-2">
+                <p class="text-xs text-rose-400">地图数据获取失败</p>
+                <button onclick="retryLoadMap()" class="px-3 py-1.5 bg-cyan-500 text-slate-950 rounded-lg text-xs font-bold shadow-lg">重新加载</button>
+            </div>
+        </div>
+
+        <!-- Toast Alert -->
+        <div id="toast" class="fixed top-20 right-4 z-50 glass-panel px-4 py-2.5 rounded-xl text-xs font-medium text-cyan-200 shadow-2xl transition-all duration-300 transform translate-y-[-10px] opacity-0 pointer-events-none flex items-center gap-2">
+            <i class="fa-solid fa-circle-info text-cyan-400"></i>
+            <span id="toastMsg">提示内容</span>
+        </div>
+    </main>
+
+    <!-- Bottom View Tabs Switch -->
+    <nav class="fixed bottom-0 left-0 right-0 z-30 glass-panel px-6 py-2 flex items-center justify-around border-t border-slate-800">
+        <button onclick="switchTab('map')" id="tabNavMap" class="flex flex-col items-center gap-1 text-cyan-400 transition-all">
+            <i class="fa-solid fa-earth-asia text-base"></i>
+            <span class="text-[10px] font-medium">地图点亮</span>
+        </button>
+        <button onclick="switchTab('timeline')" id="tabNavTimeline" class="flex flex-col items-center gap-1 text-slate-400 hover:text-slate-200 transition-all">
+            <i class="fa-solid fa-timeline text-base"></i>
+            <span class="text-[10px] font-medium">时光轨迹</span>
+        </button>
+        <button onclick="openModal('statsModal')" class="flex flex-col items-center gap-1 text-slate-400 hover:text-slate-200 transition-all">
+            <i class="fa-solid fa-chart-pie text-base"></i>
+            <span class="text-[10px] font-medium">足迹统计</span>
+        </button>
+    </nav>
+
+    <!-- Timeline Panel Modal/View -->
+    <div id="timelineView" class="fixed inset-0 top-16 bottom-14 z-20 bg-slate-950/95 backdrop-blur-xl p-4 overflow-y-auto hidden flex-col gap-3">
+        <div class="flex items-center justify-between pb-2 border-b border-slate-800">
+            <div class="flex items-center gap-2">
+                <i class="fa-solid fa-clock-rotate-left text-cyan-400"></i>
+                <h2 class="text-sm font-bold text-slate-100">旅行时光轴</h2>
+            </div>
+            <span id="timelineCount" class="text-xs text-slate-400">共 0 条记载</span>
+        </div>
+
+        <div id="timelineList" class="flex flex-col gap-3 py-2">
+            <!-- Dynamic Items Injection -->
+        </div>
+    </div>
+
+    <!-- Manual Add / Edit Modal -->
+    <div id="addModal" class="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 hidden">
+        <div class="w-full max-w-md glass-panel rounded-2xl p-5 flex flex-col gap-4 shadow-2xl border border-slate-700/50 animate-in fade-in zoom-in-95 duration-200">
+            <div class="flex items-center justify-between pb-2 border-b border-slate-800">
+                <h3 id="modalTitle" class="text-sm font-bold text-cyan-300 flex items-center gap-2">
+                    <i class="fa-solid fa-location-dot"></i>
+                    <span>记录旅行足迹</span>
+                </h3>
+                <button onclick="closeModal('addModal')" class="text-slate-400 hover:text-slate-200 p-1">
+                    <i class="fa-solid fa-xmark text-base"></i>
+                </button>
+            </div>
+
+            <form id="footprintForm" onsubmit="handleFormSubmit(event)" class="flex flex-col gap-3">
+                <input type="hidden" id="editId" value="">
+                
+                <div class="flex flex-col gap-1">
+                    <label class="text-[11px] font-medium text-slate-300">打卡日期</label>
+                    <input type="date" id="inputDate" required class="bg-slate-900/90 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-cyan-500">
+                </div>
+
+                <div class="flex flex-col gap-1">
+                    <label class="text-[11px] font-medium text-slate-300">目标城市 (如: 成都市 / 杭州市 / 昌平区)</label>
+                    <input type="text" id="inputCity" required placeholder="请输入城市名称" class="bg-slate-900/90 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-cyan-500">
+                    <div class="flex flex-wrap gap-1 mt-1">
+                        <span onclick="setCityQuick('北京市')" class="text-[10px] bg-slate-800 hover:bg-slate-700 text-slate-300 px-2 py-0.5 rounded-md cursor-pointer">北京</span>
+                        <span onclick="setCityQuick('上海市')" class="text-[10px] bg-slate-800 hover:bg-slate-700 text-slate-300 px-2 py-0.5 rounded-md cursor-pointer">上海</span>
+                        <span onclick="setCityQuick('成都市')" class="text-[10px] bg-slate-800 hover:bg-slate-700 text-slate-300 px-2 py-0.5 rounded-md cursor-pointer">成都</span>
+                        <span onclick="setCityQuick('杭州市')" class="text-[10px] bg-slate-800 hover:bg-slate-700 text-slate-300 px-2 py-0.5 rounded-md cursor-pointer">杭州</span>
+                        <span onclick="setCityQuick('深圳市')" class="text-[10px] bg-slate-800 hover:bg-slate-700 text-slate-300 px-2 py-0.5 rounded-md cursor-pointer">深圳</span>
+                        <span onclick="setCityQuick('西安市')" class="text-[10px] bg-slate-800 hover:bg-slate-700 text-slate-300 px-2 py-0.5 rounded-md cursor-pointer">西安</span>
+                    </div>
+                </div>
+
+                <div class="flex flex-col gap-1">
+                    <label class="text-[11px] font-medium text-slate-300">具体景点 / 地点 (可选)</label>
+                    <input type="text" id="inputSpot" placeholder="例如: 宽窄巷子 / 西湖 / 故宫" class="bg-slate-900/90 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-cyan-500">
+                </div>
+
+                <div class="flex flex-col gap-1">
+                    <label class="text-[11px] font-medium text-slate-300">旅行心情 / 故事原因</label>
+                    <textarea id="inputStory" rows="2" placeholder="写下当时的心情或选择这里的原因..." class="bg-slate-900/90 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-cyan-500 resize-none"></textarea>
+                </div>
+
+                <div class="flex items-center justify-end gap-2 mt-2">
+                    <button type="button" onclick="closeModal('addModal')" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-300">取消</button>
+                    <button type="submit" class="px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs shadow-lg shadow-cyan-500/20">保存打卡</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- LLM Natural Language Modal -->
+    <div id="llmModal" class="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 hidden">
+        <div class="w-full max-w-md glass-panel rounded-2xl p-5 flex flex-col gap-4 shadow-2xl border border-purple-500/30">
+            <div class="flex items-center justify-between pb-2 border-b border-slate-800">
+                <h3 class="text-sm font-bold text-purple-300 flex items-center gap-2">
+                    <i class="fa-solid fa-wand-magic-sparkles text-amber-300"></i>
+                    <span>AI 智能识别故事点亮</span>
+                </h3>
+                <button onclick="closeModal('llmModal')" class="text-slate-400 hover:text-slate-200 p-1">
+                    <i class="fa-solid fa-xmark text-base"></i>
+                </button>
+            </div>
+
+            <p class="text-[11px] text-slate-300 leading-relaxed">
+                粘贴你关于旅行的一段话（例如：“2023年10月国庆节去成都玩，专程去大熊猫基地看花花，顺便在宽窄巷子吃了火锅”），AI将自动提取时间、城市、景点并一键点亮整个城市！
+            </p>
+
+            <textarea id="llmInputText" rows="4" placeholder="在此输入或粘贴你的旅行经历段落..." class="bg-slate-900/90 border border-purple-900/60 rounded-xl p-3 text-xs text-slate-100 focus:outline-none focus:border-purple-500 resize-none"></textarea>
+
+            <div class="flex items-center justify-between pt-1">
+                <span id="llmStatusText" class="text-[11px] text-purple-300"></span>
+                <div class="flex items-center gap-2">
+                    <button onclick="closeModal('llmModal')" class="px-3 py-1.5 rounded-xl bg-slate-800 text-xs text-slate-300">取消</button>
+                    <button id="llmSubmitBtn" onclick="processLLMText()" class="px-4 py-1.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white text-xs font-bold shadow-lg shadow-purple-500/20 flex items-center gap-1.5">
+                        <i class="fa-solid fa-bolt text-amber-300"></i>
+                        <span>智能分析并点亮</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Statistics Modal -->
+    <div id="statsModal" class="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 hidden">
+        <div class="w-full max-w-sm glass-panel rounded-2xl p-5 flex flex-col gap-4 shadow-2xl border border-slate-800">
+            <div class="flex items-center justify-between pb-2 border-b border-slate-800">
+                <h3 class="text-sm font-bold text-cyan-300 flex items-center gap-2">
+                    <i class="fa-solid fa-chart-line"></i>
+                    <span>足迹统计成就</span>
+                </h3>
+                <button onclick="closeModal('statsModal')" class="text-slate-400 hover:text-slate-200 p-1">
+                    <i class="fa-solid fa-xmark text-base"></i>
+                </button>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+                <div class="glass-card rounded-xl p-3 flex flex-col items-center justify-center">
+                    <span id="statCityCount" class="text-2xl font-black text-cyan-400">0</span>
+                    <span class="text-[10px] text-slate-400 mt-0.5">点亮城市</span>
+                </div>
+                <div class="glass-card rounded-xl p-3 flex flex-col items-center justify-center">
+                    <span id="statCountTotal" class="text-2xl font-black text-indigo-400">0</span>
+                    <span class="text-[10px] text-slate-400 mt-0.5">累计打卡次数</span>
+                </div>
+            </div>
+
+            <div class="glass-card rounded-xl p-3 flex flex-col gap-2">
+                <div class="flex items-center justify-between text-xs">
+                    <span class="text-slate-300">中国城市版图覆盖率</span>
+                    <span id="statCoveragePct" class="font-bold text-cyan-300">0%</span>
+                </div>
+                <div class="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
+                    <div id="statProgressBar" class="bg-gradient-to-r from-cyan-500 to-blue-500 h-full w-0 transition-all duration-500"></div>
+                </div>
+            </div>
+
+            <div class="flex items-center justify-between pt-2">
+                <button onclick="clearAllData()" class="text-xs text-rose-400 hover:text-rose-300 flex items-center gap-1">
+                    <i class="fa-solid fa-trash-can"></i>
+                    <span>清空所有数据</span>
+                </button>
+                <button onclick="closeModal('statsModal')" class="px-4 py-1.5 rounded-xl bg-slate-800 text-xs font-medium text-slate-200">关闭</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Coordinates map cache
+        const CITY_COORDS = {
+            "北京市": [116.4074, 39.9042], "北京": [116.4074, 39.9042],
+            "上海市": [121.4737, 31.2304], "上海": [121.4737, 31.2304],
+            "广州市": [113.2644, 23.1291], "广州": [113.2644, 23.1291],
+            "深圳市": [114.0579, 22.5431], "深圳": [114.0579, 22.5431],
+            "成都市": [104.0665, 30.5723], "成都": [104.0665, 30.5723],
+            "杭州市": [120.1551, 30.2741], "杭州": [120.1551, 30.2741],
+            "重庆市": [106.5516, 29.5630], "重庆": [106.5516, 29.5630],
+            "西安市": [108.9398, 34.3416], "西安": [108.9398, 34.3416],
+            "武汉市": [114.3055, 30.5928], "武汉": [114.3055, 30.5928],
+            "南京市": [118.7969, 32.0603], "南京": [118.7969, 32.0603]
+        };
+
+        let chartInstance = null;
+        let footprintData = [];
+        let chinaGeoJson = null;
+        let provinceLinesData = [];
+        let showTrajectoryLines = true;
+        let currentLevel = 'national';
+        let currentDistrictCity = '';
+        let dynamicCityAdcodes = {};
+
+        const STORAGE_KEY = 'my_travel_footprints_v4';
+
+        window.addEventListener('DOMContentLoaded', () => {
+            loadSavedData();
+            initMapData();
+            document.getElementById('inputDate').valueAsDate = new Date();
+        });
+
+        function loadSavedData() {
+            try {
+                const stored = localStorage.getItem(STORAGE_KEY);
+                if (stored) {
+                    footprintData = JSON.parse(stored);
+                } else {
+                    footprintData = [
+                        { id: '1', date: '2023-05-01', city: '成都市', spot: '宽窄巷子', story: '第一次尝地道四川火锅，看大熊猫' },
+                        { id: '2', date: '2023-10-02', city: '杭州市', spot: '西湖景区', story: '环湖骑行，欣赏断桥残雪景色' },
+                        { id: '3', date: '2024-01-15', city: '北京市', spot: '故宫博物院', story: '红墙白雪下的紫禁城极为震撼' }
+                    ];
+                    saveData();
+                }
+            } catch (e) {
+                console.error("Storage read error:", e);
+                footprintData = [];
+            }
+        }
+
+        function saveData() {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(footprintData));
+            updateUIState();
+        }
+
+        function retryLoadMap() {
+            initMapData();
+        }
+
+        async function initMapData() {
+            const loader = document.getElementById('mapLoader');
+            const loaderRetry = document.getElementById('loaderRetry');
+            const loaderText = document.getElementById('loaderText');
+            if (loaderText) loaderText.innerText = "正在加载全国城市与省级轮廓地图数据...";
+            
+            loader.classList.remove('opacity-0', 'pointer-events-none');
+            loaderRetry.classList.add('hidden');
+
+            // Fetch province-level boundary GeoJSON containing all 34 province polygons
+            const provinceMapUrls = [
+                'https://geo.datav.aliyun.com/areas_v3/bound/100000_full.json',
+                'https://cdn.jsdelivr.net/npm/echarts@4.0.4/map/json/china.json'
+            ];
+            for (let url of provinceMapUrls) {
+                try {
+                    let res = await fetch(url);
+                    if (res.ok) {
+                        let provGeo = await res.json();
+                        provinceLinesData = extractProvinceLines(provGeo);
+                        break;
+                    }
+                } catch (e) {
+                    console.warn("Failed fetching province map boundaries from:", url, e);
+                }
+            }
+
+            // Multi-source GeoJSON URLs for China City-Level Map
+            const mapUrls = [
+                'https://cdn.jsdelivr.net/npm/echarts@4.0.4/map/json/china-cities.json',
+                'https://cdn.jsdelivr.net/npm/polaris-echarts@4.0.6/map/json/china-cities.json',
+                'https://geo.datav.aliyun.com/areas_v3/bound/100000_full.json'
+            ];
+
+            let loadedGeoJson = null;
+            for (let url of mapUrls) {
+                try {
+                    let response = await fetch(url);
+                    if (response.ok) {
+                        loadedGeoJson = await response.json();
+                        break;
+                    }
+                } catch (e) {
+                    console.warn("Failed fetching map from:", url, e);
+                }
+            }
+
+            if (!loadedGeoJson) {
+                loaderRetry.classList.remove('hidden');
+                return;
+            }
+
+            chinaGeoJson = loadedGeoJson;
+
+            // 必须在 echarts.registerMap 注册地图前将算出的几何中心点写入 properties
+            // 确保悬停 (emphasis) 状态与常规状态使用同一中心坐标，防止悬停时名称位置跳跃漂移
+            if (chinaGeoJson.features) {
+                chinaGeoJson.features.forEach(f => {
+                    if (f.properties && f.properties.name) {
+                        const name = f.properties.name;
+                        const cleanName = stripCitySuffix(name);
+
+                        // 准确计算质心并同时设置 cp, centroid, center 属性
+                        const calculatedCenter = getFeatureCenter(f);
+                        if (calculatedCenter) {
+                            f.properties.cp = calculatedCenter;
+                            f.properties.centroid = calculatedCenter;
+                            f.properties.center = calculatedCenter;
+                            CITY_COORDS[name] = calculatedCenter;
+                            CITY_COORDS[cleanName] = calculatedCenter;
+                        }
+
+                        if (f.properties.adcode) {
+                            dynamicCityAdcodes[name] = String(f.properties.adcode);
+                            dynamicCityAdcodes[cleanName] = String(f.properties.adcode);
+                        }
+                    }
+                });
+            }
+
+            // 在中心点计算完成后统一注册地图数据
+            echarts.registerMap('china_cities', chinaGeoJson);
+
+            const chartDom = document.getElementById('echartsMap');
+            if (!chartInstance) {
+                chartInstance = echarts.init(chartDom, 'dark');
+                chartInstance.on('click', (params) => {
+                    if (params.name) {
+                        drillDownDistrict(params.name);
+                    }
+                });
+            }
+
+            renderMap();
+            loader.classList.add('opacity-0', 'pointer-events-none');
+            window.addEventListener('resize', () => chartInstance && chartInstance.resize());
+        }
+
+        function extractProvinceLines(geoJson) {
+            const lines = [];
+            if (!geoJson || !geoJson.features) return lines;
+            geoJson.features.forEach(f => {
+                const geom = f.geometry;
+                if (!geom) return;
+                if (geom.type === 'Polygon') {
+                    geom.coordinates.forEach(ring => {
+                        if (ring && ring.length > 1) lines.push({ coords: ring });
+                    });
+                } else if (geom.type === 'MultiPolygon') {
+                    geom.coordinates.forEach(poly => {
+                        poly.forEach(ring => {
+                            if (ring && ring.length > 1) lines.push({ coords: ring });
+                        });
+                    });
+                }
+            });
+            return lines;
+        }
+
+        function getFeatureCenter(f) {
+            if (!f) return null;
+            const props = f.properties || {};
+            if (Array.isArray(props.cp) && props.cp.length === 2 && props.cp[0] && props.cp[1]) return props.cp;
+            if (Array.isArray(props.centroid) && props.centroid.length === 2 && props.centroid[0] && props.centroid[1]) return props.centroid;
+            if (Array.isArray(props.center) && props.center.length === 2 && props.center[0] && props.center[1]) return props.center;
+
+            const geom = f.geometry;
+            if (!geom || !geom.coordinates) return null;
+
+            let bestCenter = null;
+            let maxArea = -Infinity;
+
+            // 使用多边形面积加权质心算法，准确寻找复杂/凹多边形主区域内部几何中心
+            const processPolygon = (rings) => {
+                if (!Array.isArray(rings) || rings.length === 0) return;
+                const ring = rings[0];
+                if (!Array.isArray(ring) || ring.length < 3) return;
+
+                let area = 0, cx = 0, cy = 0;
+                for (let i = 0; i < ring.length - 1; i++) {
+                    const x0 = Number(ring[i][0]), y0 = Number(ring[i][1]);
+                    const x1 = Number(ring[i+1][0]), y1 = Number(ring[i+1][1]);
+                    if (isNaN(x0) || isNaN(y0) || isNaN(x1) || isNaN(y1)) continue;
+
+                    const cross = (x0 * y1 - x1 * y0);
+                    area += cross;
+                    cx += (x0 + x1) * cross;
+                    cy += (y0 + y1) * cross;
+                }
+
+                area = area / 2;
+                if (Math.abs(area) > Math.abs(maxArea)) {
+                    maxArea = area;
+                    if (Math.abs(area) > 1e-7) {
+                        cx = cx / (6 * area);
+                        cy = cy / (6 * area);
+                        bestCenter = [cx, cy];
+                    } else {
+                        let sumX = 0, sumY = 0, count = 0;
+                        ring.forEach(pt => {
+                            if (Array.isArray(pt) && !isNaN(pt[0]) && !isNaN(pt[1])) {
+                                sumX += Number(pt[0]);
+                                sumY += Number(pt[1]);
+                                count++;
+                            }
+                        });
+                        if (count > 0) bestCenter = [sumX / count, sumY / count];
+                    }
+                }
+            };
+
+            if (geom.type === 'Polygon') {
+                processPolygon(geom.coordinates);
+            } else if (geom.type === 'MultiPolygon') {
+                geom.coordinates.forEach(poly => processPolygon(poly));
+            }
+
+            return bestCenter;
+        }
+
+        function stripCitySuffix(name) {
+            if (!name) return '';
+            return name.replace(/(市|地区|自治州|特别行政区|盟)$/, '');
+        }
+
+        function renderMap() {
+            if (!chartInstance) return;
+
+            const mapType = (currentLevel === 'district' && currentDistrictCity) ? `district_${currentDistrictCity}` : 'china_cities';
+
+            // Match footprints with GeoJSON city polygons to light up entire area
+            const litRegionNames = new Set();
+            footprintData.forEach(item => {
+                if (!item.city) return;
+                const cleanInput = stripCitySuffix(item.city);
+
+                if (chinaGeoJson && chinaGeoJson.features) {
+                    chinaGeoJson.features.forEach(f => {
+                        const fname = f.properties && f.properties.name;
+                        if (fname) {
+                            const cleanFname = stripCitySuffix(fname);
+                            if (cleanFname === cleanInput || fname === item.city || (cleanInput.length >= 2 && cleanFname.includes(cleanInput))) {
+                                litRegionNames.add(fname);
+                            }
+                        }
+                    });
+                } else {
+                    litRegionNames.add(item.city);
+                }
+            });
+
+            // Build Polygon Region Highlight options with centered text label style
+            const regionsOption = [];
+            litRegionNames.forEach(cityName => {
+                regionsOption.push({
+                    name: cityName,
+                    itemStyle: {
+                        areaColor: 'rgba(6, 182, 212, 0.85)', // Cyan Glowing area fill for entire city
+                        borderColor: '#38bdf8',
+                        borderWidth: 1.5,
+                        shadowColor: '#06b6d4',
+                        shadowBlur: 20
+                    },
+                    label: {
+                        show: true,
+                        position: 'center',
+                        align: 'center',
+                        verticalAlign: 'middle',
+                        color: '#ffffff',
+                        fontWeight: 'bold',
+                        fontSize: 10,
+                        textBorderColor: '#090d16',
+                        textBorderWidth: 3
+                    },
+                    emphasis: {
+                        label: {
+                            show: true,
+                            color: '#ffffff',
+                            fontWeight: 'bold',
+                            fontSize: 10,
+                            textBorderColor: '#090d16',
+                            textBorderWidth: 3
+                        }
+                    }
+                });
+            });
+
+            const sortedFootprints = [...footprintData].sort((a, b) => new Date(a.date) - new Date(b.date));
+
+            // Trajectory lines
+            const linesData = [];
+            for (let i = 0; i < sortedFootprints.length - 1; i++) {
+                const fromCoord = CITY_COORDS[sortedFootprints[i].city] || CITY_COORDS[stripCitySuffix(sortedFootprints[i].city)];
+                const toCoord = CITY_COORDS[sortedFootprints[i+1].city] || CITY_COORDS[stripCitySuffix(sortedFootprints[i+1].city)];
+                if (fromCoord && toCoord) {
+                    linesData.push({ coords: [fromCoord, toCoord] });
+                }
+            }
+
+            const option = {
+                backgroundColor: 'transparent',
+                tooltip: {
+                    trigger: 'item',
+                    backgroundColor: 'rgba(15, 23, 42, 0.85)',
+                    borderColor: '#38bdf8',
+                    textStyle: { color: '#f1f5f9', fontSize: 12 },
+                    formatter: (params) => {
+                        if (params.componentType === 'geo' || params.seriesType === 'map') {
+                            const name = params.name;
+                            const cleanName = stripCitySuffix(name);
+                            const items = footprintData.filter(f => stripCitySuffix(f.city) === cleanName || f.city === name);
+                            if (items.length > 0) {
+                                return items.map(item => `
+                                    <div class="font-bold text-cyan-300">${item.city}${item.spot ? ' - ' + item.spot : ''}</div>
+                                    <div class="text-[10px] text-slate-400">${item.date}</div>
+                                    ${item.story ? `<div class="text-xs text-slate-200 mt-1">${item.story}</div>` : ''}
+                                `).join('<hr class="border-slate-700 my-1"/>');
+                            }
+                        }
+                        return params.name;
+                    }
+                },
+                geo: {
+                    map: mapType,
+                    roam: true,
+                    zoom: 1.2,
+                    label: {
+                        show: true, // 未打卡城市名称保持展示
+                        position: 'center',
+                        align: 'center',
+                        verticalAlign: 'middle',
+                        color: '#94a3b8',
+                        fontSize: 9,
+                        textBorderColor: '#0b0f19',
+                        textBorderWidth: 2
+                    },
+                    itemStyle: {
+                        areaColor: '#0f172a',
+                        borderColor: 'rgba(51, 65, 85, 0.4)', // Subtle border for individual city boundaries
+                        borderWidth: 0.6
+                    },
+                    emphasis: {
+                        itemStyle: { areaColor: '#1e293b' },
+                        label: {
+                            show: true,
+                            color: '#38bdf8',
+                            fontWeight: 'bold',
+                            fontSize: 10,
+                            textBorderColor: '#0b0f19',
+                            textBorderWidth: 3
+                        }
+                    },
+                    regions: regionsOption
+                },
+                series: [
+                    // Provincial Boundary Overlay Layer (Draws actual boundaries between provinces)
+                    {
+                        type: 'lines',
+                        coordinateSystem: 'geo',
+                        polyline: true,
+                        data: (currentLevel === 'national') ? provinceLinesData : [],
+                        lineStyle: {
+                            color: '#38bdf8', // 明亮的青蓝色省界
+                            width: 1.8,       // 省级边界粗细
+                            opacity: 0.85,    // 舒适的视效不透明度
+                            shadowColor: 'rgba(56, 189, 248, 0.6)', // 省界高亮光晕
+                            shadowBlur: 6
+                        },
+                        silent: true,
+                        zlevel: 1
+                    },
+                    {
+                        type: 'lines',
+                        coordinateSystem: 'geo',
+                        data: showTrajectoryLines ? linesData : [],
+                        effect: { show: true, period: 4, trailLength: 0.4, color: '#f59e0b', symbolSize: 4 },
+                        lineStyle: { color: '#38bdf8', width: 1.5, opacity: 0.5, curveness: 0.2 },
+                        zlevel: 2
+                    }
+                ]
+            };
+
+            chartInstance.setOption(option, true);
+            updateUIState();
+        }
+
+        async function drillDownDistrict(cityName) {
+            const cleanName = stripCitySuffix(cityName);
+            const adcode = dynamicCityAdcodes[cityName] || dynamicCityAdcodes[cleanName];
+
+            if (!adcode) {
+                showToast(`已高亮点亮城市：${cityName}`);
+                return;
+            }
+
+            const loader = document.getElementById('mapLoader');
+            const loaderText = document.getElementById('loaderText');
+            loaderText.innerText = `正在加载 [${cityName}] 区县级细节...`;
+            loader.classList.remove('opacity-0', 'pointer-events-none');
+
+            try {
+                const res = await fetch(`https://geo.datav.aliyun.com/areas_v3/bound/${adcode}_full.json`);
+                if (res.ok) {
+                    const districtGeoJson = await res.json();
+                    
+                    // 为下钻区县同样注入精确中心点坐标，保证区县视图下的悬停稳定性
+                    if (districtGeoJson.features) {
+                        districtGeoJson.features.forEach(f => {
+                            const calculatedCenter = getFeatureCenter(f);
+                            if (calculatedCenter) {
+                                f.properties.cp = calculatedCenter;
+                                f.properties.centroid = calculatedCenter;
+                                f.properties.center = calculatedCenter;
+                            }
+                        });
+                    }
+
+                    echarts.registerMap(`district_${cityName}`, districtGeoJson);
+
+                    currentLevel = 'district';
+                    currentDistrictCity = cityName;
+
+                    document.getElementById('backBtn').classList.remove('hidden');
+                    showToast(`进入 ${cityName} 区县级细节视图`);
+                    renderMap();
+                } else {
+                    showToast(`已高亮点亮城市：${cityName}`);
+                }
+            } catch (e) {
+                console.error("Failed to load district map:", e);
+                showToast(`点亮城市：${cityName}`);
+            } finally {
+                loader.classList.add('opacity-0', 'pointer-events-none');
+            }
+        }
+
+        function resetToNationalMap() {
+            currentLevel = 'national';
+            currentDistrictCity = '';
+            document.getElementById('backBtn').classList.add('hidden');
+            renderMap();
+            showToast('已返回全国城市视图');
+        }
+
+        function toggleTrajectoryLines() {
+            showTrajectoryLines = !showTrajectoryLines;
+            const btnText = document.getElementById('linesText');
+            const btnIcon = document.getElementById('linesIcon');
+
+            if (showTrajectoryLines) {
+                btnText.innerText = '隐藏轨迹线';
+                btnIcon.className = 'fa-solid fa-route text-cyan-400';
+            } else {
+                btnText.innerText = '显示轨迹线';
+                btnIcon.className = 'fa-solid fa-eye-slash text-slate-400';
+            }
+            renderMap();
+        }
+
+        function updateUIState() {
+            const uniqueCities = new Set(footprintData.map(f => stripCitySuffix(f.city)));
+            const count = uniqueCities.size;
+
+            document.getElementById('mapTitleSub').innerText = `已点亮 ${count} 个城市 · 共 ${footprintData.length} 条足迹`;
+            document.getElementById('timelineCount').innerText = `共 ${footprintData.length} 条记载`;
+
+            document.getElementById('statCityCount').innerText = count;
+            document.getElementById('statCountTotal').innerText = footprintData.length;
+            const pct = Math.min(Math.round((count / 340) * 100), 100);
+            document.getElementById('statCoveragePct').innerText = `${pct}%`;
+            document.getElementById('statProgressBar').style.width = `${pct}%`;
+
+            const listEl = document.getElementById('timelineList');
+            if (footprintData.length === 0) {
+                listEl.innerHTML = `<div class="text-center py-12 text-slate-500 text-xs">暂无旅行足迹，快点击右上方“打卡”添加吧！</div>`;
+                return;
+            }
+
+            const sorted = [...footprintData].sort((a, b) => new Date(b.date) - new Date(a.date));
+            
+            listEl.innerHTML = sorted.map(item => `
+                <div class="glass-card rounded-2xl p-3.5 flex items-start justify-between gap-3 hover:border-cyan-500/30 transition-all">
+                    <div class="flex flex-col gap-1 flex-1">
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs font-bold text-cyan-300 flex items-center gap-1">
+                                <i class="fa-solid fa-location-dot text-cyan-400"></i>
+                                ${item.city}
+                            </span>
+                            ${item.spot ? `<span class="text-[11px] px-2 py-0.5 rounded-md bg-slate-800 text-slate-300">${item.spot}</span>` : ''}
+                        </div>
+                        <span class="text-[10px] text-slate-400 flex items-center gap-1">
+                            <i class="fa-regular fa-calendar"></i>
+                            ${item.date}
+                        </span>
+                        ${item.story ? `<p class="text-xs text-slate-200 mt-1 leading-relaxed">${item.story}</p>` : ''}
+                    </div>
+
+                    <div class="flex items-center gap-1.5 self-center">
+                        <button onclick="openEditModal('${item.id}')" class="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-cyan-300 transition-all">
+                            <i class="fa-solid fa-pen-to-square text-xs"></i>
+                        </button>
+                        <button onclick="deleteFootprintDirect('${item.id}')" class="p-2 rounded-xl bg-slate-800 hover:bg-rose-900/50 text-slate-400 hover:text-rose-400 transition-all">
+                            <i class="fa-solid fa-trash-can text-xs"></i>
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function deleteFootprintDirect(id) {
+            footprintData = footprintData.filter(item => item.id !== id);
+            saveData();
+            renderMap();
+            showToast('已删除打卡记录');
+        }
+
+        function openAddModal() {
+            document.getElementById('editId').value = '';
+            document.getElementById('modalTitle').innerText = '记录旅行足迹';
+            document.getElementById('footprintForm').reset();
+            document.getElementById('inputDate').valueAsDate = new Date();
+            openModal('addModal');
+        }
+
+        function openEditModal(id) {
+            const item = footprintData.find(f => f.id === id);
+            if (!item) return;
+
+            document.getElementById('editId').value = item.id;
+            document.getElementById('modalTitle').innerText = '修改旅行足迹';
+            document.getElementById('inputDate').value = item.date;
+            document.getElementById('inputCity').value = item.city;
+            document.getElementById('inputSpot').value = item.spot || '';
+            document.getElementById('inputStory').value = item.story || '';
+
+            openModal('addModal');
+        }
+
+        function handleFormSubmit(e) {
+            e.preventDefault();
+            const editId = document.getElementById('editId').value;
+            const date = document.getElementById('inputDate').value;
+            const city = document.getElementById('inputCity').value.trim();
+            const spot = document.getElementById('inputSpot').value.trim();
+            const story = document.getElementById('inputStory').value.trim();
+
+            if (!city) return;
+
+            if (editId) {
+                const idx = footprintData.findIndex(f => f.id === editId);
+                if (idx !== -1) {
+                    footprintData[idx] = { id: editId, date, city, spot, story };
+                }
+                showToast('更新打卡成功');
+            } else {
+                const newItem = {
+                    id: Date.now().toString(),
+                    date,
+                    city,
+                    spot,
+                    story
+                };
+                footprintData.push(newItem);
+                showToast(`点亮全城：${city}`);
+            }
+
+            saveData();
+            renderMap();
+            closeModal('addModal');
+        }
+
+        function setCityQuick(cityName) {
+            document.getElementById('inputCity').value = cityName;
+        }
+
+        async function processLLMText() {
+            const text = document.getElementById('llmInputText').value.trim();
+            if (!text) {
+                showToast('请先输入一段旅行经历文字');
+                return;
+            }
+
+            const statusEl = document.getElementById('llmStatusText');
+            const submitBtn = document.getElementById('llmSubmitBtn');
+
+            statusEl.innerText = 'AI 正在解析提取中...';
+            submitBtn.disabled = true;
+
+            try {
+                const systemPrompt = `你是一个地理旅行解析助手。请从用户输入的旅行故事中解析出所有打卡记录。
+                必须输出合法的 JSON 数组，包含以下属性：
+                - date: 日期 (格式: YYYY-MM-DD，若未提到具体年份则推断或默认为当前年份)
+                - city: 中国城市或区县名称 (例如: 成都市, 杭州市, 昌平区)
+                - spot: 具体景点或地点 (如果没有则填空字符串)
+                - story: 简短说明前往原因或感悟`;
+
+                const apiKey = ""; 
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
+
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: text }] }],
+                        systemInstruction: { parts: [{ text: systemPrompt }] },
+                        generationConfig: { responseMimeType: "application/json" }
+                    })
+                });
+
+                const result = await response.json();
+                const jsonStr = result?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+                if (jsonStr) {
+                    const parsed = JSON.parse(jsonStr);
+                    if (Array.isArray(parsed) && parsed.length > 0) {
+                        parsed.forEach(item => {
+                            footprintData.push({
+                                id: Date.now().toString() + Math.random().toString(36).substring(2, 5),
+                                date: item.date || new Date().toISOString().split('T')[0],
+                                city: item.city || '未知城市',
+                                spot: item.spot || '',
+                                story: item.story || text.substring(0, 30)
+                            });
+                        });
+                        saveData();
+                        renderMap();
+                        closeModal('llmModal');
+                        document.getElementById('llmInputText').value = '';
+                        showToast(`成功提取并点亮 ${parsed.length} 个城市足迹！`);
+                    } else {
+                        showToast('未能解析到有效的地理点亮信息');
+                    }
+                } else {
+                    showToast('AI解析失败，请重试');
+                }
+
+            } catch (err) {
+                console.error("LLM Error:", err);
+                showToast('解析请求超时，请稍后重试');
+            } finally {
+                statusEl.innerText = '';
+                submitBtn.disabled = false;
+            }
+        }
+
+        function playTrajectoryAnimation() {
+            if (footprintData.length < 2) {
+                showToast('至少需要2个打卡足迹才能播放轨迹航线');
+                return;
+            }
+
+            const sorted = [...footprintData].sort((a, b) => new Date(a.date) - new Date(b.date));
+            let index = 0;
+
+            showToast('正在播放时光路线轨迹...');
+
+            const timer = setInterval(() => {
+                if (index >= sorted.length) {
+                    clearInterval(timer);
+                    showToast('轨迹航线播放完毕');
+                    return;
+                }
+
+                const item = sorted[index];
+                showToast(`轨迹第 ${index + 1} 站：${item.city}${item.spot ? ' - ' + item.spot : ''} (${item.date})`);
+                index++;
+            }, 2000);
+        }
+
+        function switchTab(tab) {
+            const timelineView = document.getElementById('timelineView');
+            const tabMap = document.getElementById('tabNavMap');
+            const tabTimeline = document.getElementById('tabNavTimeline');
+
+            if (tab === 'timeline') {
+                timelineView.classList.remove('hidden');
+                timelineView.classList.add('flex');
+                tabTimeline.className = 'flex flex-col items-center gap-1 text-cyan-400 transition-all';
+                tabMap.className = 'flex flex-col items-center gap-1 text-slate-400 hover:text-slate-200 transition-all';
+            } else {
+                timelineView.classList.add('hidden');
+                timelineView.classList.remove('flex');
+                tabMap.className = 'flex flex-col items-center gap-1 text-cyan-400 transition-all';
+                tabTimeline.className = 'flex flex-col items-center gap-1 text-slate-400 hover:text-slate-200 transition-all';
+            }
+        }
+
+        function openModal(id) {
+            document.getElementById(id).classList.remove('hidden');
+        }
+
+        function closeModal(id) {
+            document.getElementById(id).classList.add('hidden');
+        }
+
+        function clearAllData() {
+            if (confirm('确定要清空保存的所有足迹数据吗？')) {
+                footprintData = [];
+                saveData();
+                renderMap();
+                closeModal('statsModal');
+                showToast('已清空全部打卡记录');
+            }
+        }
+
+        function showToast(msg) {
+            const toast = document.getElementById('toast');
+            const toastMsg = document.getElementById('toastMsg');
+            toastMsg.innerText = msg;
+            toast.classList.remove('opacity-0', 'pointer-events-none', 'translate-y-[-10px]');
+            setTimeout(() => {
+                toast.classList.add('opacity-0', 'pointer-events-none', 'translate-y-[-10px]');
+            }, 3000);
+        }
+    </script>
+</body>
+</html>
